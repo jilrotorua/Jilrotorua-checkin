@@ -2300,11 +2300,15 @@ function renderDashboard(){
   const whsRows=outreachRows.filter(r=>{const s=normalizeServiceName(r.service).toLowerCase();return s.includes('worship')&&s.includes('healing');});
   const whsCounts={}; whsRows.forEach(r=>{const c=r.category||'Uncategorised';whsCounts[c]=(whsCounts[c]||0)+1;});
   const whsGatherings=new Set(whsRows.map(r=>[r.date,normalizeOutreachName(r.outreach),normalizeServiceName(r.service),r.serviceDetail||''].join('|')));
-  const yearAverage=dashboardPeriod==='year';
-  const entries=reportingCategoryEntries(whsCounts).map(([c,n])=>[c,yearAverage&&whsGatherings.size&&n?(n/whsGatherings.size).toFixed(1):n]);
-  $('dashCategoryTitle').textContent=yearAverage?'Average WHS Attendance by Category':'WHS Attendance by Category';
-  $('dashCategoryValueHeading').textContent=yearAverage?'Average':'Attendance';
-  $('dashCategoryMaleValueHeading').textContent=yearAverage?'Average':'Attendance';
+  const averageWHS=dashboardPeriod==='specific'||dashboardPeriod==='year';
+  const entries=reportingCategoryEntries(whsCounts).map(([c,n])=>{
+    if(!averageWHS||!whsGatherings.size)return [c,n];
+    const average=n/whsGatherings.size;
+    return [c,average?average.toFixed(1):0];
+  });
+  $('dashCategoryTitle').textContent=averageWHS?'Average WHS Attendance by Category':'WHS Attendance by Category';
+  $('dashCategoryValueHeading').textContent=averageWHS?'Average':'Attendance';
+  $('dashCategoryMaleValueHeading').textContent=averageWHS?'Average':'Attendance';
   const categoryPairs=[];
   for(let i=0;i<entries.length;i+=2){
     const female=entries[i],male=entries[i+1];
