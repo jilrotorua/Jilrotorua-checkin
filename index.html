@@ -298,6 +298,10 @@ select:focus,input:focus{border-color:#4b8fc8;box-shadow:0 0 0 4px rgba(36,117,1
 .category-table th,.category-table td{padding:10px 8px;border-bottom:1px solid #e8eef4;text-align:left;font-size:13px}
 .category-table th{color:var(--navy);font-size:12px}
 .category-table td:last-child,.category-table th:last-child{text-align:right}
+.service-report-table .service-section td{background:#edf6ff;color:var(--navy);font-weight:800;border-top:3px solid #c8e2f7}
+.service-report-table .service-detail td:first-child{padding-left:22px}
+.service-report-table .first-timer-row td{background:#fff8dc;color:#765200;font-weight:700}
+.service-report-table .average-row td{background:#eef9f2;color:#155f3c;font-weight:700}
 .period-tabs{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap}
 .period-tabs button{border:1px solid #c9d8e6;background:white;color:var(--navy);border-radius:999px;padding:9px 13px;font-weight:800}
 .period-tabs button.active{background:var(--navy);color:white}
@@ -934,8 +938,8 @@ select:focus,input:focus{border-color:#4b8fc8;box-shadow:0 0 0 4px rgba(36,117,1
       <tbody id="dashCategoryBody"></tbody>
     </table>
     <h3 style="margin:16px 0 8px">Attendance by Service / Gathering</h3>
-    <table class="category-table">
-      <thead><tr><th>Service / Gathering</th><th>Attendance</th></tr></thead>
+    <table class="category-table service-report-table">
+      <thead><tr><th>Service / Gathering</th><th>Measure</th><th>Result</th></tr></thead>
       <tbody id="dashServiceBody"></tbody>
     </table>
     <h3 style="margin:16px 0 8px">Attendance by Outreach</h3>
@@ -2143,6 +2147,42 @@ function countFirstTimersBetween(from,to,outreachFilter){
     return d&&d>=from&&d<=to&&visitorMatchesFilters(v,outreachFilter);
   }).map(v=>String(v.name||'').trim().toLowerCase()).filter(Boolean)).size;
 }
+function visitorForAttendanceRow(row){
+  const personId=String(row&&row.personId||'').trim();
+  const name=String(row&&row.name||'').trim().toLowerCase();
+  return (visitors||[]).find(v=>(personId&&String(v.id||'')===personId)||String(v.name||'').trim().toLowerCase()===name)||null;
+}
+function countFirstTimersInAttendanceRows(rows){
+  const firstTimers=new Set();
+  (rows||[]).forEach(row=>{
+    if(String(row.personType||'').trim().toLowerCase()!=='visitor')return;
+    const visitor=visitorForAttendanceRow(row);
+    if(!visitor||isPriorVisitor(visitor)||!visitor.firstVisit)return;
+    if(String(visitor.firstVisit).slice(0,10)!==String(row.date||'').slice(0,10))return;
+    const key=String(visitor.id||row.personId||visitor.name||row.name||'').trim().toLowerCase();
+    if(key)firstTimers.add(key);
+  });
+  return firstTimers.size;
+}
+function serviceReportType(row){
+  const service=normalizeServiceName(row&&row.service).toLowerCase();
+  if(service.includes('worship')&&service.includes('healing'))return 'sunday';
+  if(service.includes('prayer'))return 'prayer';
+  if(service.includes('lifegroup')||service.includes('life group'))return 'lifegroup';
+  if(service.includes('special event')||service.includes('other'))return 'event';
+  return 'other';
+}
+function gatheringCount(rows){
+  return new Set((rows||[]).map(r=>[r.date,normalizeOutreachName(r.outreach),normalizeServiceName(r.service),String(r.serviceDetail||'').trim()].join('|'))).size;
+}
+function serviceDetailTotals(rows,fallback){
+  const totals={};
+  (rows||[]).forEach(row=>{
+    const detail=String(row.serviceDetail||'').trim()||fallback;
+    totals[detail]=(totals[detail]||0)+1;
+  });
+  return Object.entries(totals).sort((a,b)=>a[0].localeCompare(b[0]));
+}
 function dashboardFilteredRows(rows){
   const outreachFilter=$('dashOutreachFilter')?$('dashOutreachFilter').value:'All';
   const serviceFilter=$('dashServiceFilter')?$('dashServiceFilter').value:'All';
@@ -2315,9 +2355,36 @@ function renderDashboard(){
     categoryPairs.push(`<tr><td>${esc(female[0])}</td><td style="text-align:right">${female[1]}</td><td>${male?esc(male[0]):''}</td><td>${male?male[1]:''}</td></tr>`);
   }
   $('dashCategoryBody').innerHTML=categoryPairs.join('');
-  const serviceCounts={};outreachRows.forEach(r=>{const ss=normalizeServiceName(r.service),detail=r.serviceDetail?` — ${r.serviceDetail}`:'',key=ss+detail;serviceCounts[key]=(serviceCounts[key]||0)+1;});
-  const serviceEntries=Object.entries(serviceCounts).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
-  $('dashServiceBody').innerHTML=serviceEntries.length?serviceEntries.map(([x,n])=>`<tr><td>${esc(x)}</td><td>${n}</td></tr>`).join(''):'<tr><td colspan="2" style="text-align:center;color:#7a8b9b;padding:18px">No attendance recorded for this period.</td></tr>';
+  const sundayRows=outreachRows.filter(r=>serviceReportType(r)==='sunday');
+  const prayerRows=outreachRows.filter(r=>serviceReportType(r)==='prayer');
+  const eventRows=outreachRows.filter(r=>serviceReportType(r)==='event');
+  const lifegroupRows=outreachRows.filter(r=>serviceReportType(r)==='lifegroup');
+  const averagePeriod=dashboardPeriod==='specific'||dashboardPeriod==='year';
+  const sundayGatherings=gatheringCount(sundayRows),prayerGatherings=gatheringCount(prayerRows),lifegroupGatherings=gatheringCount(lifegroupRows);
+  const sundayValue=averagePeriod?(sundayGatherings?sundayRows.length/sundayGatherings:0):sundayRows.length;
+  const prayerValue=averagePeriod?(prayerGatherings?prayerRows.length/prayerGatherings:0):prayerRows.length;
+  const periodMeasure=averagePeriod?'Average attendance':'Total attendance';
+  const periodValue=value=>averagePeriod?Number(value).toFixed(1):String(value);
+  const serviceReportRows=[
+    `<tr class="service-section"><td>Sunday Worship &amp; Healing Service</td><td>${periodMeasure}</td><td>${periodValue(sundayValue)}</td></tr>`,
+    `<tr class="first-timer-row"><td>Sunday Service</td><td>Total first-time visitors</td><td>${countFirstTimersInAttendanceRows(sundayRows)}</td></tr>`,
+    `<tr class="service-section"><td>Prayer Meeting</td><td>${periodMeasure}</td><td>${periodValue(prayerValue)}</td></tr>`,
+    `<tr class="first-timer-row"><td>Prayer Meeting</td><td>Total first-time visitors</td><td>${countFirstTimersInAttendanceRows(prayerRows)}</td></tr>`,
+    '<tr class="service-section"><td>Other Events</td><td>Attendance by named event</td><td></td></tr>'
+  ];
+  const eventTotals=serviceDetailTotals(eventRows,'Unnamed Event');
+  if(eventTotals.length){
+    eventTotals.forEach(([name,total])=>serviceReportRows.push(`<tr class="service-detail"><td>${esc(name)}</td><td>Total attendance for event</td><td>${total}</td></tr>`));
+  }else serviceReportRows.push('<tr class="service-detail"><td>Other Events</td><td>Total attendance for event</td><td>0</td></tr>');
+  serviceReportRows.push(`<tr class="first-timer-row"><td>Other Events</td><td>Total first-time visitors</td><td>${countFirstTimersInAttendanceRows(eventRows)}</td></tr>`);
+  serviceReportRows.push('<tr class="service-section"><td>Lifegroups</td><td>Attendance by named lifegroup</td><td></td></tr>');
+  const lifegroupTotals=serviceDetailTotals(lifegroupRows,'Unnamed Lifegroup');
+  if(lifegroupTotals.length){
+    lifegroupTotals.forEach(([name,total])=>serviceReportRows.push(`<tr class="service-detail"><td>${esc(name)}</td><td>Total attendance for lifegroup</td><td>${total}</td></tr>`));
+  }else serviceReportRows.push('<tr class="service-detail"><td>Lifegroup</td><td>Total attendance for lifegroup</td><td>0</td></tr>');
+  serviceReportRows.push(`<tr class="first-timer-row"><td>Lifegroup</td><td>Total first-time visitors</td><td>${countFirstTimersInAttendanceRows(lifegroupRows)}</td></tr>`);
+  serviceReportRows.push(`<tr class="average-row"><td>Lifegroup</td><td>Average attendance per gathering</td><td>${(lifegroupGatherings?lifegroupRows.length/lifegroupGatherings:0).toFixed(1)}</td></tr>`);
+  $('dashServiceBody').innerHTML=serviceReportRows.join('');
   const outreachCounts={};periodRows.filter(r=>serviceFilter==='All'||normalizeServiceName(r.service)===serviceFilter).forEach(r=>{const o=normalizeOutreachName(r.outreach);outreachCounts[o]=(outreachCounts[o]||0)+1;});
   const outreachEntries=Object.entries(outreachCounts).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
   $('dashOutreachBody').innerHTML=outreachEntries.length?outreachEntries.map(([o,n])=>`<tr><td>${esc(o)}</td><td>${n}</td></tr>`).join(''):'<tr><td colspan="2" style="text-align:center;color:#7a8b9b;padding:18px">No attendance recorded for this period.</td></tr>';
