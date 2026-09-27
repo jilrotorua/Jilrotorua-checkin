@@ -26,6 +26,14 @@ body{min-height:100vh;min-height:100dvh}
 .welcome{font-size:clamp(19px,2.5vw,30px);font-weight:700;margin-top:8px;color:var(--navy2);max-width:560px}.welcome:after{content:"";display:block;width:74px;height:4px;background:#e6b64a;border-radius:4px;margin-top:14px}
 .datebox{text-align:right;color:var(--muted);font-size:13px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 .datebox b{display:block;color:var(--navy2);font-size:21px;letter-spacing:0;margin-top:5px}
+.attendance-date-line{display:flex;justify-content:flex-end;align-items:center;gap:7px;margin-top:5px}
+.attendance-date-line b{display:inline-block;margin-top:0}
+.date-pencil{width:32px;height:32px;min-height:32px;border:1px solid #bfd1e2;border-radius:50%;background:#fff;color:var(--navy);font-size:16px;font-weight:800;padding:0;line-height:1;box-shadow:0 2px 7px rgba(22,62,102,.08)}
+.date-pencil:hover,.date-pencil:focus{background:#edf6ff;border-color:#6aa1cf}
+.datebox.backdated .attendance-date-line b{color:#a45d00}
+.datebox.backdated .date-pencil{background:#fff4db;border-color:#e6b64a;color:#8a4b00}
+.attendance-date-notice{display:none;margin-top:6px;color:#9a5700;font-size:10px;font-weight:850;letter-spacing:.04em;text-transform:none;white-space:normal}
+.datebox.backdated .attendance-date-notice{display:block}
 .kicker{display:inline-block;background:var(--navy);color:white;padding:9px 15px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.15em;margin:8px 0 22px}
 .grid{display:grid;grid-template-columns:1fr 1.35fr;gap:18px}
 .field{margin-bottom:15px}
@@ -133,6 +141,7 @@ select:focus,input:focus{border-color:#4b8fc8;box-shadow:0 0 0 4px rgba(36,117,1
     font-size:11px;
   }
   .datebox b{font-size:17px}
+  .attendance-date-line{justify-content:flex-start}
   .hello{font-size:38px}
   .welcome{
     font-size:22px;
@@ -655,7 +664,7 @@ select:focus,input:focus{border-color:#4b8fc8;box-shadow:0 0 0 4px rgba(36,117,1
 <img class="banner-landscape" src="banner-landscape.png" alt="Jesus Is Lord Church">
 </aside>
 <main class="main"><section class="panel">
-<div class="topline"><div><div class="hello">Kia Ora!</div><div class="welcome">Welcome, we’re glad you are here.</div></div><div class="datebox">Today's date<b id="today"></b><div class="kicker">ATTENDANCE CHECK-IN</div></div></div>
+<div class="topline"><div><div class="hello">Kia Ora!</div><div class="welcome">Welcome, we’re glad you are here.</div></div><div class="datebox" id="attendanceDateBox"><span id="attendanceDateLabel">Today's date</span><div class="attendance-date-line"><b id="today"></b><button class="date-pencil" id="editAttendanceDate" type="button" aria-label="Change attendance date" title="Change attendance date">✎</button></div><div class="attendance-date-notice" id="attendanceDateNotice">Past attendance date selected</div><div class="kicker">ATTENDANCE CHECK-IN</div></div></div>
 <div style="color:#5f7388;font-size:15px;line-height:1.5;margin-bottom:12px">Please check in below. We’re blessed to worship with you today.</div>
                                                                                                                                               
 <div class="grid">
@@ -685,6 +694,19 @@ select:focus,input:focus{border-color:#4b8fc8;box-shadow:0 0 0 4px rgba(36,117,1
 <div class="footer">Where no one and nothing is being lifted up, except the name of Jesus!</div>
 <div class="adminbar"><button class="linkbtn" id="manageAttendanceBtn">Manage Attendance</button><button class="linkbtn" id="historyBtn">Attendance History</button><button class="linkbtn" id="toolsBtn">Reports &amp; Data</button><button class="linkbtn" id="syncToolsBtn">Online &amp; Sync</button><button class="linkbtn" id="adminBtn">Admin</button><button class="linkbtn" id="dashboardBtn">MIS</button><button class="linkbtn" id="manDashboardBtn">MAN</button></div>
 </section></main></div>
+
+<div class="modal" id="attendanceDateModal" role="dialog" aria-modal="true" aria-labelledby="attendanceDateModalTitle">
+  <div class="card" style="width:min(440px,100%)">
+    <button class="modal-x" id="closeAttendanceDateModal" type="button" aria-label="Close">×</button>
+    <h2 id="attendanceDateModalTitle">Choose Attendance Date</h2>
+    <p>Select the date of the service or gathering you are entering.</p>
+    <div class="field"><label for="attendanceDateInput">Attendance Date</label><input id="attendanceDateInput" type="date"></div>
+    <div class="modalactions">
+      <button class="cancel" id="useTodayAttendanceDate" type="button">Use Today</button>
+      <button class="save" id="saveAttendanceDate" type="button">Use Selected Date</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal sync-progress-modal" id="syncProgressModal" role="dialog" aria-modal="true" aria-labelledby="syncProgressTitle">
   <div class="card sync-progress-card" id="syncProgressCard">
@@ -1086,7 +1108,41 @@ function nzDateParts(d=new Date()){
 }
 function localDateISO(d=new Date()){const p=nzDateParts(d);return `${p.year}-${p.month}-${p.day}`}
 function nzCalendarDate(d=new Date()){const p=nzDateParts(d);return new Date(Number(p.year),Number(p.month)-1,Number(p.day),12,0,0,0)}
-$('today').textContent=new Intl.DateTimeFormat('en-NZ',{timeZone:NZ_TIME_ZONE,day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date());
+let attendanceEntryDate=localDateISO();
+function formatAttendanceDate(dateISO){
+  const parts=String(dateISO||'').split('-').map(Number);
+  if(parts.length!==3||parts.some(n=>!n))return '';
+  return new Intl.DateTimeFormat('en-NZ',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(parts[0],parts[1]-1,parts[2],12));
+}
+function selectedAttendanceDate(){return attendanceEntryDate||localDateISO()}
+function updateAttendanceDateDisplay(){
+  const today=localDateISO(),selected=selectedAttendanceDate(),isBackdated=selected!==today;
+  $('today').textContent=formatAttendanceDate(selected);
+  $('attendanceDateLabel').textContent=isBackdated?'Attendance date':"Today's date";
+  $('attendanceDateBox').classList.toggle('backdated',isBackdated);
+  $('attendanceDateNotice').textContent=isBackdated?`Past date active • ${formatAttendanceDate(selected)}`:'';
+}
+function setAttendanceEntryDate(value){
+  const today=localDateISO();
+  attendanceEntryDate=value&&value<=today?value:today;
+  updateAttendanceDateDisplay();
+}
+updateAttendanceDateDisplay();
+$('editAttendanceDate').onclick=()=>{
+  $('attendanceDateInput').max=localDateISO();
+  $('attendanceDateInput').value=selectedAttendanceDate();
+  $('attendanceDateModal').classList.add('show');
+};
+$('closeAttendanceDateModal').onclick=()=>$('attendanceDateModal').classList.remove('show');
+$('useTodayAttendanceDate').onclick=()=>{setAttendanceEntryDate(localDateISO());$('attendanceDateModal').classList.remove('show');msg("Attendance date reset to today.")};
+$('saveAttendanceDate').onclick=()=>{
+  const chosen=$('attendanceDateInput').value;
+  if(!chosen){msg('Please choose an attendance date.',false);return}
+  if(chosen>localDateISO()){msg('Attendance date cannot be in the future.',false);return}
+  setAttendanceEntryDate(chosen);
+  $('attendanceDateModal').classList.remove('show');
+  msg(chosen===localDateISO()?"Attendance date set to today.":`Past attendance date selected: ${formatAttendanceDate(chosen)}.`);
+};
 function calcAge(b){if(!b)return null;const x=new Date(b+'T00:00:00'),n=nzCalendarDate();if(isNaN(x))return null;let a=n.getFullYear()-x.getFullYear();const md=n.getMonth()-x.getMonth();if(md<0||(md===0&&n.getDate()<x.getDate()))a--;return a}
 function calcCategory(g,b){
   const a=calcAge(b);
@@ -1190,14 +1246,14 @@ function record(nameOverride){
     return false;
   }
   const type=personTypeOf(p);
-  const today=localDateISO();
+  const today=selectedAttendanceDate();
   const outreach=selectedOutreach();
   const service=selectedService();
   const serviceDetail=selectedServiceDetail();
   if(service==='Lifegroup' && !serviceDetail){msg('Please enter the Lifegroup name first.',false);return false}
   if(service==='Special Event / Other' && !serviceDetail){msg('Please enter the event or gathering name first.',false);return false}
   if(attendance.some(a=>a.date===today&&a.name===p.name&&normalizeOutreachName(a.outreach)===outreach&&normalizeServiceName(a.service)===service&&(a.serviceDetail||'')===serviceDetail)){
-    msg(`${p.name} is already recorded for this gathering today.`,false);resetNameEntry();return false
+    msg(`${p.name} is already recorded for this gathering on ${formatAttendanceDate(today)}.`,false);resetNameEntry();return false
   }
   const now=new Date();
   attendance.push({
@@ -1249,7 +1305,7 @@ $('vGender').onchange=updateVisitorBirthdayValue;
 $('vBirthDay').onchange=updateVisitorBirthdayValue;
 $('vBirthMonth').onchange=updateVisitorBirthdayDays;
 $('vBirthYear').onchange=updateVisitorBirthdayDays;
-$('saveVisitor').onclick=()=>{const name=$('vName').value.trim(),gender=$('vGender').value,birthday=$('vBirthday').value;if(!name){msg('Please enter the visitor’s name.',false);return}if(members.some(v=>v.name.toLowerCase()===name.toLowerCase())){msg('This person is already registered as a member.',false);$('visitorModal').classList.remove('show');$('name').value=name;updateDetails();return}if(availableVisitors().some(v=>v.name.toLowerCase()===name.toLowerCase())){msg('This visitor is already in the visitor list.',false);$('visitorModal').classList.remove('show');$('name').value=name;updateDetails();return}const v={id:'V'+String(Date.now()).slice(-7),name,gender,birthday,category:calcCategory(gender,birthday),firstVisit:localDateISO(),totalVisits:0,membershipStatus:'Visitor',converted:'',mobile:$('vMobile').value.trim(),invitedBy:$('vInvited').value.trim(),churchAttending:$('vChurchAttending').value.trim(),outreach:selectedOutreach()};savePriorVisitor(v,$('vReturningVisitor').checked);visitors.push(v);localStorage.setItem(KEY_VISITORS,JSON.stringify(visitors));$('visitorModal').classList.remove('show');refreshNames(name);record(name);['vName','vBirthday','vBirthDay','vBirthMonth','vBirthYear','vMobile','vInvited','vChurchAttending','vCategory'].forEach(id=>$(id).value='');$('vGender').value='';$('vReturningVisitor').checked=false};
+$('saveVisitor').onclick=()=>{const name=$('vName').value.trim(),gender=$('vGender').value,birthday=$('vBirthday').value;if(!name){msg('Please enter the visitor’s name.',false);return}if(members.some(v=>v.name.toLowerCase()===name.toLowerCase())){msg('This person is already registered as a member.',false);$('visitorModal').classList.remove('show');$('name').value=name;updateDetails();return}if(availableVisitors().some(v=>v.name.toLowerCase()===name.toLowerCase())){msg('This visitor is already in the visitor list.',false);$('visitorModal').classList.remove('show');$('name').value=name;updateDetails();return}const v={id:'V'+String(Date.now()).slice(-7),name,gender,birthday,category:calcCategory(gender,birthday),firstVisit:selectedAttendanceDate(),totalVisits:0,membershipStatus:'Visitor',converted:'',mobile:$('vMobile').value.trim(),invitedBy:$('vInvited').value.trim(),churchAttending:$('vChurchAttending').value.trim(),outreach:selectedOutreach()};savePriorVisitor(v,$('vReturningVisitor').checked);visitors.push(v);localStorage.setItem(KEY_VISITORS,JSON.stringify(visitors));$('visitorModal').classList.remove('show');refreshNames(name);record(name);['vName','vBirthday','vBirthDay','vBirthMonth','vBirthYear','vMobile','vInvited','vChurchAttending','vCategory'].forEach(id=>$(id).value='');$('vGender').value='';$('vReturningVisitor').checked=false};
 function csvEsc(v){const s=String(v??'');return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s}
 function dl(filename,text,type){const blob=new Blob([text],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 $('toolsBtn').onclick=()=>$('toolsModal').classList.add('show');
